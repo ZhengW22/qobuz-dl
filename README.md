@@ -175,3 +175,16 @@ Attributes, methods and parameters have been named as self-explanatory as possib
 ## Disclaimer
 * This tool was written for educational purposes. I will not be responsible if you use this program in bad faith. By using it, you are accepting the [Qobuz API Terms of Use](https://static.qobuz.com/apps/api/QobuzAPI-TermsofUse.pdf).
 * `qobuz-dl` is not affiliated with Qobuz
+
+## Build
+
+```bash
+uv venv
+uv pip install -r requirements.txt
+uv pip install pyinstaller
+pyinstaller --onefile \
+            --name qobuz-dl \
+            --collect-all qobuz_dl \
+            --hidden-import qobuz_dl \
+            entry.py
+```
