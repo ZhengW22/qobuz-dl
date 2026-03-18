@@ -22,6 +22,29 @@ RESET = "Reset your credentials with 'qobuz-dl -r'"
 logger = logging.getLogger(__name__)
 
 
+def retry_on_network_error(max_retries=3, backoff_factor=2):
+    """Decorator to retry on network errors with exponential backoff."""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            retry_count = 0
+            while retry_count < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except (requests.exceptions.RequestException, ConnectionError) as e:
+                    retry_count += 1
+                    if retry_count >= max_retries:
+                        logger.error(f"Max retries ({max_retries}) exceeded. Giving up.")
+                        raise
+                    wait_time = backoff_factor ** retry_count
+                    logger.warning(
+                        f"Network error: {e}. Retrying in {wait_time}s... ({retry_count}/{max_retries})"
+                    )
+                    time.sleep(wait_time)
+            return None
+        return wrapper
+    return decorator
+
+
 class Client:
     def __init__(self, email, pwd, app_id, secrets):
         logger.info(f"{YELLOW}Logging...")
@@ -41,6 +64,7 @@ class Client:
         self.auth(email, pwd)
         self.cfg_setup()
 
+    @retry_on_network_error(max_retries=3, backoff_factor=2)
     def api_call(self, epoint, **kwargs):
         if epoint == "user/login":
             params = {

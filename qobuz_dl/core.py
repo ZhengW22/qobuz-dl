@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import time
 
 import requests
 from bs4 import BeautifulSoup as bso
@@ -363,10 +364,26 @@ class QobuzDL:
     def download_lastfm_pl(self, playlist_url):
         # Apparently, last fm API doesn't have a playlist endpoint. If you
         # find out that it has, please fix this!
-        try:
-            r = requests.get(playlist_url, timeout=10)
-        except requests.exceptions.RequestException as e:
-            logger.error(f"{RED}Playlist download failed: {e}")
+        max_retries = 3
+        retry_count = 0
+        backoff_factor = 2
+        r = None
+        while retry_count < max_retries:
+            try:
+                r = requests.get(playlist_url, timeout=10)
+                r.raise_for_status()
+                break  # Success
+            except requests.exceptions.RequestException as e:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    logger.error(f"{RED}Playlist download failed after {max_retries} retries: {e}")
+                    return
+                wait_time = backoff_factor ** retry_count
+                logger.warning(
+                    f"{YELLOW}Playlist download error: {e}. Retrying in {wait_time}s... ({retry_count}/{max_retries})"
+                )
+                time.sleep(wait_time)
+        if r is None:
             return
         soup = bso(r.content, "html.parser")
         artists = [artist.text for artist in soup.select(ARTISTS_SELECTOR)]

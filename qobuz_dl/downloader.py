@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from typing import Tuple
 
 import requests
@@ -317,27 +318,49 @@ class Download:
             return ("Unknown", quality_met, None, None)
 
 
-def tqdm_download(url, fname, desc):
+def tqdm_download(url, fname, desc, max_retries=3):
     headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'}
-    r = requests.get(url, allow_redirects=True, stream=True, headers=headers)
-    total = int(r.headers.get("content-length", 0))
-    download_size = 0
-    with open(fname, "wb") as file, tqdm(
-        total=total,
-        unit="iB",
-        unit_scale=True,
-        unit_divisor=1024,
-        desc=desc,
-        bar_format=CYAN + "{n_fmt}/{total_fmt} /// {desc}",
-    ) as bar:
-        for data in r.iter_content(chunk_size=1024):
-            size = file.write(data)
-            bar.update(size)
-            download_size += size
+    retry_count = 0
+    backoff_factor = 2
 
-    if total != download_size:
-        # https://stackoverflow.com/questions/69919912/requests-iter-content-thinks-file-is-complete-but-its-not
-        raise ConnectionError("File download was interrupted for " + fname)
+    while retry_count < max_retries:
+        try:
+            r = requests.get(url, allow_redirects=True, stream=True, headers=headers)
+            total = int(r.headers.get("content-length", 0))
+            download_size = 0
+            with open(fname, "wb") as file, tqdm(
+                total=total,
+                unit="iB",
+                unit_scale=True,
+                unit_divisor=1024,
+                desc=desc,
+                bar_format=CYAN + "{n_fmt}/{total_fmt} /// {desc}",
+            ) as bar:
+                for data in r.iter_content(chunk_size=1024):
+                    size = file.write(data)
+                    bar.update(size)
+                    download_size += size
+
+            if total != download_size:
+                raise ConnectionError(f"File download was interrupted for {fname}")
+            return  # Success, exit function
+
+        except (requests.exceptions.RequestException, ConnectionError) as e:
+            retry_count += 1
+            # Clean up tmp file before retry
+            if os.path.isfile(fname):
+                try:
+                    os.remove(fname)
+                    logger.info(f"{OFF}Cleaned up incomplete file: {fname}")
+                except OSError:
+                    pass
+            if retry_count >= max_retries:
+                raise ConnectionError(f"Download failed after {max_retries} retries: {e}")
+            wait_time = backoff_factor ** retry_count
+            logger.warning(
+                f"{YELLOW}Download error: {e}. Retrying in {wait_time}s... ({retry_count}/{max_retries})"
+            )
+            time.sleep(wait_time)
 
 
 def _get_description(item: dict, track_title, multiple=None):

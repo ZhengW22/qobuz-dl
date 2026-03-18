@@ -1,9 +1,10 @@
 import base64
 import logging
 import re
+import time
 from collections import OrderedDict
 
-from requests import Session
+from requests import Session, RequestException
 
 # Modified code based on DashLt's spoofbuz
 
@@ -27,23 +28,40 @@ _BUNDLE_URL_REGEX = re.compile(
 )
 
 
+def _get_with_retry(session, url, max_retries=3, backoff_factor=2, **kwargs):
+    """Make a GET request with retry logic."""
+    retry_count = 0
+    while retry_count < max_retries:
+        try:
+            response = session.get(url, **kwargs)
+            response.raise_for_status()
+            return response
+        except RequestException as e:
+            retry_count += 1
+            if retry_count >= max_retries:
+                raise
+            wait_time = backoff_factor ** retry_count
+            logger.warning(
+                f"Request failed: {e}. Retrying in {wait_time}s... ({retry_count}/{max_retries})"
+            )
+            time.sleep(wait_time)
+
+
 class Bundle:
     def __init__(self):
         self._session = Session()
 
-        logger.debug("Getting logging page")
-        response = self._session.get(f"{_BASE_URL}/login")
-        response.raise_for_status()
+        logger.debug("Getting login page")
+        response = _get_with_retry(self._session, f"{_BASE_URL}/login")
 
         bundle_url_match = _BUNDLE_URL_REGEX.search(response.text)
         if not bundle_url_match:
-            raise NotImplementedError("Bundle URL found")
+            raise NotImplementedError("Bundle URL not found")
 
         bundle_url = bundle_url_match.group(1)
 
         logger.debug("Getting bundle")
-        response = self._session.get(_BASE_URL + bundle_url)
-        response.raise_for_status()
+        response = _get_with_retry(self._session, _BASE_URL + bundle_url)
 
         self._bundle = response.text
 
