@@ -98,7 +98,13 @@ class Download:
             self.folder_format, self.track_format, file_format
         )
         sanitized_title = sanitize_filepath(folder_format.format(**album_attr))
-        dirn = os.path.join(self.path, sanitized_title)
+        artist_name = sanitize_filename(meta["artist"]["name"])
+        # Check if we're already inside an artist directory (e.g., when downloading from artist URL)
+        # If not, create an artist directory to keep album organized by artist
+        if os.path.basename(self.path) != artist_name:
+            dirn = os.path.join(self.path, artist_name, sanitized_title)
+        else:
+            dirn = os.path.join(self.path, sanitized_title)
         os.makedirs(dirn, exist_ok=True)
 
         if self.no_cover:

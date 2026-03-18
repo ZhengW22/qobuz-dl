@@ -179,7 +179,7 @@ Attributes, methods and parameters have been named as self-explanatory as possib
 ## Build
 
 ```bash
-uv venv
+uv venv --python python3.13
 uv pip install -r requirements.txt
 uv pip install pyinstaller
 pyinstaller --onefile \
