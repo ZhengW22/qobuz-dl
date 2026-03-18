@@ -318,7 +318,7 @@ class Download:
             return ("Unknown", quality_met, None, None)
 
 
-def tqdm_download(url, fname, desc, max_retries=3):
+def tqdm_download(url, fname, desc, max_retries=10):
     headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'}
     retry_count = 0
     backoff_factor = 2
