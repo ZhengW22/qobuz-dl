@@ -9,7 +9,7 @@ from pathvalidate import sanitize_filename
 
 from qobuz_dl.bundle import Bundle
 from qobuz_dl import downloader, qopy
-from qobuz_dl.color import CYAN, OFF, RED, YELLOW, DF, RESET
+from qobuz_dl.color import CYAN, GREEN, OFF, RED, YELLOW, DF, RESET
 from qobuz_dl.exceptions import NonStreamable
 from qobuz_dl.db import create_db, handle_download_id
 from qobuz_dl.utils import (
@@ -81,14 +81,15 @@ class QobuzDL:
             secret for secret in bundle.get_secrets().values() if secret
         ]  # avoid empty fields
 
-    def download_from_id(self, item_id, album=True, alt_path=None):
+    def download_from_id(self, item_id, album=True, alt_path=None, item_name=None):
+        """Download an item by ID. Returns True on success, False on failure."""
         if handle_download_id(self.downloads_db, item_id, add_id=False):
             logger.info(
                 f"{OFF}This release ID ({item_id}) was already downloaded "
                 "according to the local database.\nUse the '--no-db' flag "
                 "to bypass this."
             )
-            return
+            return True  # Consider already downloaded as success
         try:
             dloader = downloader.Download(
                 self.client,
@@ -105,8 +106,18 @@ class QobuzDL:
             )
             dloader.download_id_by_type(not album)
             handle_download_id(self.downloads_db, item_id, add_id=True)
+            return True
         except (requests.exceptions.RequestException, NonStreamable) as e:
             logger.error(f"{RED}Error getting release: {e}. Skipping...")
+            # Store failed item info for summary
+            if not hasattr(self, '_failed_downloads'):
+                self._failed_downloads = []
+            self._failed_downloads.append({
+                'id': item_id,
+                'name': item_name or f"ID:{item_id}",
+                'error': str(e)
+            })
+            return False
 
     def handle_url(self, url):
         possibles = {
@@ -157,16 +168,50 @@ class QobuzDL:
                 ]
 
             logger.info(f"{YELLOW}{len(items)} downloads in queue")
+            # Initialize batch tracking for artist/label downloads
+            self._failed_downloads = []
+            success_count = 0
+            fail_count = 0
+
             for item in items:
-                self.download_from_id(
+                # Get item name for summary report
+                item_name = item.get("title", item.get("name", f"ID:{item['id']}"))
+                result = self.download_from_id(
                     item["id"],
                     True if type_dict["iterable_key"] == "albums" else False,
                     new_path,
+                    item_name=item_name,
                 )
+                if result:
+                    success_count += 1
+                else:
+                    fail_count += 1
+
+            # Print summary report for batch downloads
+            if url_type in ("artist", "label", "playlist") and len(items) > 1:
+                self._print_download_summary(url_type, content_name, success_count, fail_count)
+
             if url_type == "playlist" and not self.no_m3u_for_playlists:
                 make_m3u(new_path)
         else:
             self.download_from_id(item_id, type_dict["album"])
+
+    def _print_download_summary(self, url_type, content_name, success_count, fail_count):
+        """Print a summary report for batch downloads."""
+        total = success_count + fail_count
+        logger.info(f"\n{'=' * 50}")
+        logger.info(f"{CYAN}Download Summary for {url_type.title()}: {content_name}")
+        logger.info(f"{'=' * 50}")
+        logger.info(f"{GREEN}Successful: {success_count}/{total}")
+        if fail_count > 0:
+            logger.info(f"{RED}Failed: {fail_count}/{total}")
+            logger.info(f"\n{RED}Failed items:")
+            for i, item in enumerate(self._failed_downloads, 1):
+                logger.info(f"  {i}. {item['name']} (ID: {item['id']})")
+                logger.info(f"     Error: {item['error']}")
+        else:
+            logger.info(f"{GREEN}All downloads completed successfully!")
+        logger.info(f"{'=' * 50}\n")
 
     def download_list_of_urls(self, urls):
         if not urls or not isinstance(urls, list):
